@@ -1,0 +1,171 @@
+
+########################### Define Top Module ############################
+                                                   
+set top_module SYS_TOP
+
+##################### Define Working Library Directory ######################
+                                                   
+define_design_lib work -path ./work
+
+############################# Formality Setup File ##########################
+                                                   
+set_svf $top_module.svf
+
+################## Design Compiler Library Files #setup ######################
+
+puts "###########################################"
+puts "#      #setting Design Libraries          #"
+puts "###########################################"
+
+#Add the path of the libraries and RTL files to the search_path variable
+lappend search_path /home/IC/Projects/System/Backend/std_cells/libs
+lappend search_path /home/IC/Projects/System/RTL
+
+set SSLIB "scmetro_tsmc_cl013g_rvt_ss_1p08v_125c.db"
+set TTLIB "scmetro_tsmc_cl013g_rvt_tt_1p2v_25c.db"
+set FFLIB "scmetro_tsmc_cl013g_rvt_ff_1p32v_m40c.db"
+
+## Standard Cell libraries 
+set target_library [list $SSLIB $TTLIB $FFLIB]
+
+## Standard Cell & Hard Macros libraries 
+set link_library [list * $SSLIB $TTLIB $FFLIB]  
+
+######################## Reading RTL Files #################################
+
+puts "###########################################"
+puts "#             Analyzing RTL Files           #"
+puts "###########################################"
+
+set file_format verilog
+
+analyze -format $file_format ALU.v
+analyze -format $file_format ClkDiv.v
+analyze -format $file_format CLK_GATE.v
+analyze -format $file_format pulse_generator.v
+analyze -format $file_format bit_synchronizer.v
+analyze -format $file_format data_synchronizer.v
+analyze -format $file_format Reg_File.v
+analyze -format $file_format RST_SYNC.v
+analyze -format $file_format SYS_CTRL.v
+analyze -format $file_format data_sampling.v
+analyze -format $file_format deserializer.v
+analyze -format $file_format edge_bit_counter.v
+analyze -format $file_format parity_check.v
+analyze -format $file_format stop_check.v
+analyze -format $file_format start_check.v
+analyze -format $file_format UART_Rx.v
+analyze -format $file_format UART_Rx_FSM.v
+analyze -format $file_format MUX_8x1.v
+analyze -format $file_format Parity_Calc.v
+analyze -format $file_format serializer.v
+analyze -format $file_format UART_Tx.v
+analyze -format $file_format UART_Tx_FSM.v
+analyze -format $file_format UART.v
+analyze -format $file_format mux2X1.v
+analyze -format $file_format SYS_TOP_dft.v
+
+#################### elaborating All The Design Parts #########################
+puts "###############################################"
+puts "######## elaborating All The Design Parts ########"
+puts "###############################################"
+
+elaborate -lib work SYS_TOP_dft
+
+#################### Liniking All The Design Parts #########################
+puts "###############################################"
+puts "######## checking design consistency ##########"
+puts "###############################################"
+
+check_design
+
+#################### Define Design Constraints #########################
+puts "###############################################"
+puts "############ Design Constraints #### ##########"
+puts "###############################################"
+
+source ./cons.tcl
+
+#################### Archirecture Scan Chains #########################
+puts "###############################################"
+puts "############ Configure scan chains ############"
+puts "###############################################"
+
+set_scan_configuration -clock_mixing no_mix  -style multiplexed_flip_flop -replace true -max_length 100
+
+###################### Mapping and optimization ########################
+puts "###############################################"
+puts "########## Mapping & Optimization #############"
+puts "###############################################"
+
+
+compile -scan
+
+################################################################### 
+# Setting Test Timing Variables
+################################################################### 
+
+# Preclock Measure Protocol (default protocol)
+set test_default_period 100
+set test_default_delay 0
+set test_default_bidir_delay 0
+set test_default_strobe 20
+set test_default_strobe_width 0
+
+########################## Define DFT Signals ##########################
+
+set_dft_signal -port [get_ports scan_clk]  -type ScanClock   -view existing_dft  -timing {30 60}
+set_dft_signal -port [get_ports scan_rst]  -type Reset       -view existing_dft  -active_state 0
+set_dft_signal -port [get_ports test_mode] -type Constant    -view existing_dft  -active_state 1 
+set_dft_signal -port [get_ports test_mode] -type TestMode    -view spec          -active_state 1 
+set_dft_signal -port [get_ports SE]        -type ScanEnable  -view spec          -active_state 1   -usage scan
+set_dft_signal -port [get_ports SI]        -type ScanDataIn  -view spec 
+set_dft_signal -port [get_ports SO]        -type ScanDataOut -view spec
+
+############################# Create Test Protocol #####################
+
+create_test_protocol
+                            
+###################### Pre-DFT Design Rule Checking ####################
+
+dft_drc -verbose
+
+############################# Preview DFT ##############################
+
+preview_dft -show scan_summary
+
+############################# Insert DFT ###############################
+
+insert_dft
+
+######################## Optimize Logic post DFT #######################
+
+compile -scan -incremental
+
+###################### Design Rule Checking post DFT ###################
+
+dft_drc -verbose -coverage_estimate > reports/coverage.rpt
+
+#############################################################################
+# Write out files
+#############################################################################
+
+write_file -format verilog -hierarchy -output netlists/$top_module.ddc
+write_file -format verilog -hierarchy -output netlists/$top_module.v
+write_sdf  sdf/$top_module.sdf
+write_sdc  -nosplit sdc/$top_module.sdc
+
+####################### reporting ##########################################
+
+report_area -hierarchy > reports/area.rpt
+report_power -hierarchy > reports/power.rpt
+report_timing -delay_type min -max_paths 100 > reports/hold.rpt
+report_timing -delay_type max -max_paths 100 > reports/setup.rpt
+report_clock -attributes > reports/clocks.rpt
+report_constraint -all_violators -nosplit > reports/constraints.rpt
+
+################# starting graphical user interface #######################
+
+gui_start
+
+#exit
